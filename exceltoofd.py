@@ -153,17 +153,41 @@ FIELD_MAPPING = {
 
 
 def format_field(value, field_type, field_length, decimal_places=0):
-    if pd.isna(value) or not str(value).strip():
+    """严格按规则格式化字段（终极修正版）"""
+    # 1. 空值处理（全空格）
+    if pd.isna(value) or str(value).strip() == "":
         return " " * field_length
+
+    # 2. 数值型处理
     if "数值型" in field_type or "数字字符型" in field_type:
         try:
+            # 去除非数字字符（保留小数点）
             cleaned = re.sub(r"[^\d.]", "", str(value))
             num = float(cleaned)
+            # 补足小数位并去小数点
             formatted = f"{num:.{decimal_places}f}".replace(".", "")
             return formatted.zfill(field_length)
         except:
             return " " * field_length
-    return str(value).ljust(field_length)[:field_length]
+
+    # 3. 字符型处理（按GB18030字节长度严格处理）
+    str_value = str(value).strip()  # 保留内容，仅去除首尾空格
+    try:
+        # 计算实际字节长度
+        byte_length = len(str_value.encode('gb18030'))
+    except UnicodeEncodeError:
+        byte_length = len(str_value)  # 回退方案
+
+    # 处理超长情况
+    if byte_length > field_length:
+        # 安全截断（避免半个汉字）
+        while byte_length > field_length:
+            str_value = str_value[:-1]
+            byte_length = len(str_value.encode('gb18030'))
+        return str_value
+    else:
+        # 不足补空格
+        return str_value + " " * (field_length - byte_length)
 
 def excel_to_txt(data_file):
     """返回生成的 txt 文件路径"""
@@ -227,4 +251,5 @@ if uploaded:
             os.remove(txt_path)
 
         except Exception as e:
+
             st.error(f"转换失败：{e}")
