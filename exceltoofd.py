@@ -5,6 +5,7 @@ import os, re, tempfile
 from pathlib import Path
 from difflib import get_close_matches
 
+
 FIELD_MAPPING = {
     "通讯地址": ("Address", "字符型", 300, 0),
     "法人代表身份证件代码": ("InstReprIDCode", "字符型", 40, 0),
@@ -153,131 +154,130 @@ FIELD_MAPPING = {
 
 
 def format_field(value, field_type, field_length, decimal_places=0):
-    """严格按规则格式化字段（终极修正版）"""
-    # 1. 空值处理（全空格）
+    """格式化字段（与原代码相同）"""
     if pd.isna(value) or str(value).strip() == "":
         return " " * field_length
-
-    # 2. 数值型处理
     if "数值型" in field_type or "数字字符型" in field_type:
         try:
-            # 去除非数字字符（保留小数点）
             cleaned = re.sub(r"[^\d.]", "", str(value))
             num = float(cleaned)
-            # 补足小数位并去小数点
             formatted = f"{num:.{decimal_places}f}".replace(".", "")
             return formatted.zfill(field_length)
         except:
             return " " * field_length
-
-    # 3. 字符型处理（按GB18030字节长度严格处理）
-    str_value = str(value).strip()  # 保留内容，仅去除首尾空格
+    str_value = str(value).strip()
     try:
-        # 计算实际字节长度
         byte_length = len(str_value.encode('gb18030'))
     except UnicodeEncodeError:
-        byte_length = len(str_value)  # 回退方案
-
-    # 处理超长情况
+        byte_length = len(str_value)
     if byte_length > field_length:
-        # 安全截断（避免半个汉字）
         while byte_length > field_length:
             str_value = str_value[:-1]
             byte_length = len(str_value.encode('gb18030'))
         return str_value
     else:
-        # 不足补空格
         return str_value + " " * (field_length - byte_length)
 
 
 def find_closest_match(column_name, choices, cutoff=0.6):
-    """返回最相似的字段名（支持中文模糊匹配）"""
+    """返回最相似的字段名"""
     matches = get_close_matches(column_name, choices, n=1, cutoff=cutoff)
     return matches[0] if matches else None
 
 
 def interactive_column_mapping(df_columns):
-    """交互式列名匹配主函数"""
+    """交互式列名匹配（仅显示不匹配字段）"""
     if 'column_mapping' not in st.session_state:
         st.session_state.column_mapping = {}
 
-    # 显示标题和当前进度
-    st.subheader("📌 列名匹配检查")
-    st.caption(f"发现 {len(df_columns)} 个需要匹配的列")
-
-    # 分步骤处理每个列名
-    for idx, col in enumerate(df_columns):
-        st.markdown(f"---\n**列 {idx + 1}: `{col}`**")
-
-        # 情况1：完全匹配
+    # 先处理所有自动匹配
+    auto_matched = []
+    for col in df_columns:
         if col in FIELD_MAPPING:
             st.session_state.column_mapping[col] = col
-            st.success(f"自动匹配成功 → `{FIELD_MAPPING[col][0]}`")
-            continue
+            auto_matched.append(col)
 
-        # 情况2：模糊匹配建议
-        closest = find_closest_match(col, FIELD_MAPPING.keys())
-        if closest:
-            col1, col2, col3 = st.columns([1, 1, 3])
-            with col1:
-                if st.button(f"匹配到「{closest}」", key=f"accept_{col}"):
-                    st.session_state.column_mapping[col] = closest
+    # 仅显示需要处理的列
+    unmatched_columns = [col for col in df_columns if col not in auto_matched]
+    if not unmatched_columns:
+        st.success("✅ 所有列名已自动匹配成功！")
+        return st.session_state.column_mapping
+
+    # 显示需要处理的列
+    st.subheader("📌 需要确认的列名匹配")
+    st.caption(f"发现 {len(unmatched_columns)} 个列需要确认")
+
+    for col in unmatched_columns:
+        with st.container(border=True):
+            st.markdown(f"**Excel列名:** `{col}`")
+
+            # 尝试模糊匹配
+            closest = find_closest_match(col, FIELD_MAPPING.keys())
+            if closest:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"👉 接受建议: 「{closest}」",
+                                 key=f"accept_{col}",
+                                 help=f"匹配到系统字段: {FIELD_MAPPING[closest][0]}"):
+                        st.session_state.column_mapping[col] = closest
+                        st.rerun()
+                with col2:
+                    if st.button("🛠 手动选择", key=f"manual_{col}"):
+                        st.session_state.current_editing = col
+                        st.rerun()
+            else:
+                st.warning("无自动匹配建议")
+                st.session_state.current_editing = col
+
+            # 手动选择模式
+            if st.session_state.get('current_editing') == col:
+                selected = st.selectbox(
+                    "选择对应系统字段:",
+                    sorted(FIELD_MAPPING.keys()),
+                    key=f"select_{col}"
+                )
+                if st.button("✅ 确认选择", key=f"confirm_{col}"):
+                    st.session_state.column_mapping[col] = selected
+                    del st.session_state.current_editing
                     st.rerun()
-            with col2:
-                if st.button("手动选择", key=f"manual_{col}"):
-                    st.session_state.current_editing = col
-                    st.rerun()
-        else:
-            st.warning("无自动匹配建议")
 
-        # 情况3：手动选择模式
-        if st.session_state.get('current_editing') == col:
-            selected = st.selectbox(
-                "请选择对应字段:",
-                sorted(FIELD_MAPPING.keys()),
-                key=f"select_{col}"
-            )
-            if st.button("确认选择", key=f"confirm_{col}"):
-                st.session_state.column_mapping[col] = selected
-                del st.session_state.current_editing
-                st.rerun()
-
-    # 显示最终映射关系
-    if st.session_state.column_mapping:
-        st.divider()
-        st.subheader("🔖 当前映射关系")
-        mapping_df = pd.DataFrame({
-            "Excel列名": st.session_state.column_mapping.keys(),
-            "系统字段名": [x for x in st.session_state.column_mapping.values()],
-            "英文标识": [FIELD_MAPPING[x][0] for x in st.session_state.column_mapping.values()]
-        })
-        st.dataframe(mapping_df, hide_index=True)
+    # 显示当前进度
+    matched_count = len(st.session_state.column_mapping) - len(auto_matched)
+    if matched_count > 0:
+        st.progress(matched_count / len(unmatched_columns),
+                    text=f"匹配进度: {matched_count}/{len(unmatched_columns)}")
 
     return st.session_state.column_mapping
 
 
 def excel_to_txt(data_file, column_mapping):
-    """修改后的转换函数（支持自定义列名映射）"""
-    # 读取Excel并应用列名映射
+    """支持自定义列名映射的转换函数"""
     df = pd.read_excel(data_file, dtype=str, keep_default_na=False).fillna("")
     df = df.rename(columns=column_mapping)
 
-    # 检查是否存在未映射的必需字段
+    # 检查必需字段
     missing_fields = set(FIELD_MAPPING.keys()) - set(df.columns)
     if missing_fields:
-        st.warning(f"缺少必需字段: {', '.join(missing_fields)}")
+        st.warning(f"注意: 缺少建议字段: {', '.join(missing_fields)}")
 
-    # 生成文件名（与原逻辑相同）
+    # 生成文件名
     base_name = Path(data_file).stem
-    output_file = Path(tempfile.gettempdir()) / f"{base_name}.TXT"
+    parts = base_name.split('_')
+    if len(parts) != 5 or parts[0] != 'OFD':
+        raise ValueError("文件名格式必须是：OFD_创建人_接收人_日期_类型.xlsx")
 
-    # 写入文件（与原逻辑相同）
+    output_file = Path(tempfile.gettempdir()) / f"{base_name}.TXT"
     with open(output_file, 'w', encoding='gb18030', newline='\r\n') as f:
-        # ...（文件头写入逻辑保持不变）...
+        f.write(f"OFDCFDAT\n22\n{parts[1]}\n{parts[2]}\n{parts[3]}\n00000000\n{parts[4]}\n\n\n")
+        f.write(f"{len(df.columns):08d}\n")
+        for col in df.columns:
+            if col in FIELD_MAPPING:
+                f.write(f"{FIELD_MAPPING[col][0]}\n")
+        f.write(f"{len(df):016d}\n")
         for _, row in df.iterrows():
             record = []
             for col in df.columns:
-                if col in FIELD_MAPPING:  # 只处理映射后的字段
+                if col in FIELD_MAPPING:
                     _, field_type, length, decimal = FIELD_MAPPING[col]
                     record.append(format_field(row[col], field_type, length, decimal))
             f.write("".join(record) + "\n")
@@ -285,13 +285,22 @@ def excel_to_txt(data_file, column_mapping):
     return output_file
 
 
-# ==================== Streamlit 页面 ====================
+# ==================== Streamlit 界面 ====================
 st.set_page_config(page_title="OFD 智能转换工具", layout="wide")
 st.title("📁 OFD Excel → TXT 智能转换器")
 st.markdown("""
 <style>
-    .stRadio > div {flex-direction:row;}
-    .stDownloadButton button {background:#4CAF50!important;}
+    div[data-testid="stVerticalBlock"] > div:has(>.stContainer) {
+        border: 1px solid #eee;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    .stProgress > div > div > div {
+        background-color: #4CAF50;
+    }
+    button[kind="primary"] {
+        background: #4CAF50 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -299,8 +308,8 @@ st.markdown("""
 uploaded = st.file_uploader("选择 Excel 文件", type=["xlsx"], key="uploader")
 
 if uploaded:
-    # 第一步：解析列名
     try:
+        # 第一步：解析列名
         df = pd.read_excel(uploaded, nrows=0)
         column_mapping = interactive_column_mapping(df.columns.tolist())
 
@@ -317,13 +326,14 @@ if uploaded:
                     txt_path = excel_to_txt(temp_excel, column_mapping)
 
                     # 提供下载
-                    st.success("转换成功！")
+                    st.success("转换完成！")
                     with open(txt_path, "rb") as f:
                         st.download_button(
                             label="⬇️ 下载 TXT 文件",
                             data=f,
                             file_name=txt_path.name,
-                            mime="text/plain"
+                            mime="text/plain",
+                            type="primary"
                         )
 
                     # 清理临时文件
@@ -331,3 +341,4 @@ if uploaded:
                     os.unlink(txt_path)
     except Exception as e:
         st.error(f"处理失败: {str(e)}")
+        st.code(f"错误详情:\n{str(e)}", language="text")
