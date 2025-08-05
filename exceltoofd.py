@@ -280,11 +280,6 @@ def excel_to_txt(data_file, column_mapping):
     df = pd.read_excel(data_file, dtype=str, keep_default_na=False).fillna("")
     df = df.rename(columns=column_mapping)
 
-    # 检查必需字段
-    missing_fields = set(FIELD_MAPPING.keys()) - set(df.columns)
-    if missing_fields:
-        st.warning(f"注意: 缺少建议字段: {', '.join(missing_fields)}")
-
     # 生成文件名
     base_name = Path(data_file).stem
     parts = base_name.split('_')
@@ -361,4 +356,5 @@ if uploaded:
                         os.unlink(txt_path)
         except Exception as e:
             st.error(f"处理错误: {str(e)}")
+
 
