@@ -175,7 +175,7 @@ def show_upload_guide():
         ❌ `OFD_002_11.xlsx`
         """)
         st.image("https://via.placeholder.com/600x200?text=Example: OFD_创建人_接收人_日期_类型.xlsx",
-                 use_column_width=True)
+                 use_container_width=True)  # 这里修改了参数名
 
 
 # ==================== 核心功能 ====================
