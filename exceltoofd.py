@@ -5,6 +5,7 @@ import os, re, tempfile
 from pathlib import Path
 from difflib import get_close_matches
 
+# 常量定义
 
 FIELD_MAPPING = {
     "通讯地址": ("Address", "字符型", 300, 0),
@@ -153,6 +154,32 @@ FIELD_MAPPING = {
 }
 
 
+
+# ==================== 工具函数 ====================
+def check_filename(filename):
+    """检查文件名是否符合 OFD_创建人_接收人_日期_类型.xlsx 格式"""
+    pattern = r"^OFD_.+_.+_\d{8}_.+\.xlsx$"
+    return re.match(pattern, filename) is not None
+
+
+def show_upload_guide():
+    """显示上传文件格式提示"""
+    with st.expander("ℹ️ 上传文件要求", expanded=True):
+        st.markdown("""
+        **文件名必须严格遵循以下格式：**  
+        `OFD_创建人_接收人_日期_类型.xlsx`  
+
+        例如：  
+        ✅ `OFD_002_11_20230801_01.xlsx`  
+        ❌ `客户数据.xlsx`  
+        ❌ `OFD_002_11.xlsx`
+        """)
+        st.image("https://via.placeholder.com/600x200?text=Example: OFD_创建人_接收人_日期_类型.xlsx",
+                 use_column_width=True)
+
+
+# ==================== 核心功能 ====================
+
 def format_field(value, field_type, field_length, decimal_places=0):
     """格式化字段（与原代码相同）"""
     if pd.isna(value) or str(value).strip() == "":
@@ -286,59 +313,53 @@ def excel_to_txt(data_file, column_mapping):
 
 
 # ==================== Streamlit 界面 ====================
-st.set_page_config(page_title="OFD 智能转换工具", layout="wide")
-st.title("📁 OFD Excel → TXT 智能转换器")
-st.markdown("""
-<style>
-    div[data-testid="stVerticalBlock"] > div:has(>.stContainer) {
-        border: 1px solid #eee;
-        padding: 10px;
-        border-radius: 5px;
-    }
-    .stProgress > div > div > div {
-        background-color: #4CAF50;
-    }
-    button[kind="primary"] {
-        background: #4CAF50 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="OFD 转换工具", layout="centered")
+st.title("📁 OFD Excel → TXT 转换器")
+
+# 显示上传指南（始终展示）
+show_upload_guide()
 
 # 文件上传区
-uploaded = st.file_uploader("选择 Excel 文件", type=["xlsx"], key="uploader")
+uploaded = st.file_uploader("选择 Excel 文件", type=["xlsx"],
+                            help="请上传符合命名规范的Excel文件")
 
 if uploaded:
-    try:
-        # 第一步：解析列名
-        df = pd.read_excel(uploaded, nrows=0)
-        column_mapping = interactive_column_mapping(df.columns.tolist())
+    # 实时检查文件名
+    if not check_filename(uploaded.name):
+        st.error(f"❌ 文件名不符合规范: {uploaded.name}")
+        st.markdown("""
+        **正确格式示例：**  
+        `OFD_销售部_基金公司_20230815_申购.xlsx`
+        """)
+    else:
+        # 显示文件名检查通过
+        st.success(f"✅ 文件名验证通过: `{uploaded.name}`")
 
-        # 第二步：转换确认
-        if len(column_mapping) == len(df.columns):
-            if st.button("🚀 开始转换", type="primary"):
-                with st.spinner("转换中..."):
-                    # 保存临时文件
-                    temp_excel = Path(tempfile.gettempdir()) / uploaded.name
-                    with open(temp_excel, "wb") as f:
-                        f.write(uploaded.getbuffer())
+        # 处理文件内容
+        try:
+            df = pd.read_excel(uploaded, nrows=0)
+            column_mapping = interactive_column_mapping(df.columns.tolist())
 
-                    # 执行转换
-                    txt_path = excel_to_txt(temp_excel, column_mapping)
+            if len(column_mapping) == len(df.columns):
+                if st.button("🚀 开始转换", type="primary"):
+                    with st.spinner("转换中..."):
+                        temp_excel = Path(tempfile.gettempdir()) / uploaded.name
+                        with open(temp_excel, "wb") as f:
+                            f.write(uploaded.getbuffer())
 
-                    # 提供下载
-                    st.success("转换完成！")
-                    with open(txt_path, "rb") as f:
-                        st.download_button(
-                            label="⬇️ 下载 TXT 文件",
-                            data=f,
-                            file_name=txt_path.name,
-                            mime="text/plain",
-                            type="primary"
-                        )
+                        txt_path = excel_to_txt(temp_excel, column_mapping)
 
-                    # 清理临时文件
-                    os.unlink(temp_excel)
-                    os.unlink(txt_path)
-    except Exception as e:
-        st.error(f"处理失败: {str(e)}")
-        st.code(f"错误详情:\n{str(e)}", language="text")
+                        # 显示转换完成并下载
+                        with open(txt_path, "rb") as f:
+                            st.download_button(
+                                label="⬇️ 下载 TXT 文件",
+                                data=f,
+                                file_name=txt_path.name,
+                                mime="text/plain"
+                            )
+
+                        # 清理临时文件
+                        os.unlink(temp_excel)
+                        os.unlink(txt_path)
+        except Exception as e:
+            st.error(f"处理错误: {str(e)}")
