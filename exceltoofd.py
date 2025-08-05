@@ -174,8 +174,6 @@ def show_upload_guide():
         ❌ `客户数据.xlsx`  
         ❌ `OFD_002_11.xlsx`
         """)
-        st.image("https://via.placeholder.com/600x200?text=Example: OFD_创建人_接收人_日期_类型.xlsx",
-                 use_container_width=True)  # 这里修改了参数名
 
 
 # ==================== 核心功能 ====================
@@ -363,3 +361,4 @@ if uploaded:
                         os.unlink(txt_path)
         except Exception as e:
             st.error(f"处理错误: {str(e)}")
+
